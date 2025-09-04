@@ -1,0 +1,8 @@
+{
+  "name": "MyPlanner",
+  "description": "An intelligent calendar that automatically extracts events from documents, photos, or your camera. It prioritizes tasks, helps plan your schedule, and syncs with your life.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}

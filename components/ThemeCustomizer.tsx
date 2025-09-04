@@ -1,0 +1,179 @@
+import React, { useRef } from 'react';
+import { XIcon } from './icons/XIcon';
+import { ImageIcon } from './icons/ImageIcon';
+import { ThemeColor, FontFamily, themes, fonts } from '../theme';
+import { ToggleSwitch } from './ToggleSwitch';
+import { ThemeMode } from '../types';
+import { SunIcon } from './icons/SunIcon';
+import { MoonIcon } from './icons/MoonIcon';
+
+interface ThemeCustomizerProps {
+  isOpen: boolean;
+  onClose: () => void;
+  calendarName: string;
+  onCalendarNameChange: (name: string) => void;
+  themeMode: ThemeMode;
+  onThemeModeChange: (mode: ThemeMode) => void;
+  currentColor: ThemeColor;
+  onColorChange: (color: ThemeColor) => void;
+  currentFont: FontFamily;
+  onFontChange: (font: FontFamily) => void;
+  onBgChange: (bg: string | null) => void;
+  isProximityAlertsEnabled: boolean;
+  onProximityAlertsChange: (enabled: boolean) => void;
+}
+
+export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({
+  isOpen,
+  onClose,
+  calendarName,
+  onCalendarNameChange,
+  themeMode,
+  onThemeModeChange,
+  currentColor,
+  onColorChange,
+  currentFont,
+  onFontChange,
+  onBgChange,
+  isProximityAlertsEnabled,
+  onProximityAlertsChange,
+}) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  if (!isOpen) return null;
+
+  const handleBgUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        onBgChange(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-sm p-6 animate-fade-in-up">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Customize</h2>
+          <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700">
+            <XIcon className="w-6 h-6 text-slate-600 dark:text-slate-300" />
+          </button>
+        </div>
+        
+        <div className="space-y-6">
+          {/* Calendar Name */}
+          <div>
+            <label htmlFor="calendar-name" className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Calendar Name</label>
+            <input
+              id="calendar-name"
+              type="text"
+              value={calendarName}
+              onChange={(e) => onCalendarNameChange(e.target.value)}
+              className="w-full p-2 border border-slate-300 rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+            />
+          </div>
+
+          {/* Dark Mode Toggle */}
+          <div>
+            <label className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Appearance</label>
+            <div className="flex rounded-md border border-slate-300 dark:border-slate-600 p-1">
+              <button
+                onClick={() => onThemeModeChange('light')}
+                className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-sm transition-colors ${themeMode === 'light' ? 'bg-slate-200 dark:bg-slate-600' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+              >
+                <SunIcon className="w-5 h-5 text-slate-700 dark:text-slate-200" /> Light
+              </button>
+              <button
+                onClick={() => onThemeModeChange('dark')}
+                className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-sm transition-colors ${themeMode === 'dark' ? 'bg-slate-200 dark:bg-slate-600' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+              >
+                <MoonIcon className="w-5 h-5 text-slate-700 dark:text-slate-200" /> Dark
+              </button>
+            </div>
+          </div>
+
+          {/* Color Theme Selector */}
+          <div>
+            <label className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Color Theme</label>
+            <div className="flex flex-wrap items-center gap-3">
+              {(Object.keys(themes) as ThemeColor[]).map(color => (
+                <button
+                  key={color}
+                  onClick={() => onColorChange(color)}
+                  className={`w-8 h-8 rounded-full capitalize ring-2 ring-offset-2 transition-all ${currentColor === color ? 'ring-slate-800 dark:ring-slate-200' : 'ring-transparent hover:ring-slate-400'}`}
+                  style={{ backgroundColor: themes[color]['500'] }}
+                  title={color}
+                />
+              ))}
+            </div>
+          </div>
+          
+          {/* Font Selector */}
+          <div>
+            <label htmlFor="font-select" className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Font Style</label>
+            <select
+              id="font-select"
+              value={currentFont}
+              onChange={(e) => onFontChange(e.target.value as FontFamily)}
+              className="w-full p-2 border border-slate-300 rounded-md bg-white capitalize dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+            >
+              {(Object.keys(fonts) as FontFamily[]).map(font => (
+                <option key={font} value={font}>{font}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Background Image Uploader */}
+          <div>
+            <label className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Background Image</label>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-white text-slate-700 font-semibold border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 transition-all dark:bg-slate-700 dark:text-slate-200 dark:border-slate-600 dark:hover:bg-slate-600"
+              >
+                <ImageIcon className="w-5 h-5" />
+                Upload
+              </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/png, image/jpeg, image/gif, image/webp"
+                onChange={handleBgUpload}
+              />
+              <button
+                onClick={() => onBgChange(null)}
+                className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300 font-semibold text-sm dark:bg-slate-600 dark:text-slate-100 dark:hover:bg-slate-500"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+          
+           {/* Proximity Alerter Toggle */}
+          <div className="border-t border-slate-200 dark:border-slate-600 pt-5">
+            <label className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Proximity Alerts</label>
+            <div className="flex items-start justify-between gap-4">
+                <p className="text-sm text-slate-500 dark:text-slate-400 max-w-[75%]">
+                    Get an alert to notify a contact if you haven't left for a high-priority event.
+                </p>
+                <ToggleSwitch
+                    checked={isProximityAlertsEnabled}
+                    onChange={onProximityAlertsChange}
+                />
+            </div>
+          </div>
+        </div>
+        
+        <div className="mt-8 flex justify-end">
+          <button onClick={onClose} className="px-5 py-2 bg-[var(--primary-600)] text-white rounded-md hover:bg-[var(--primary-700)] font-semibold">
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
