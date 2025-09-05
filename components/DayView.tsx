@@ -46,18 +46,21 @@ export const DayView: React.FC<DayViewProps> = ({ date, events, onEventClick, on
   return (
     <div className={`flex-1 flex shadow-lg rounded-lg overflow-auto ${bgClass}`}>
       {/* Timescale */}
-      <div className="w-20 text-sm text-right pr-2">
+      <div className="w-16 sm:w-20 text-xs sm:text-sm text-right pr-2">
         {hours.map(hour => (
           <div key={hour} className="h-16 relative border-t border-slate-200 dark:border-slate-700 -top-px">
             <span className="relative -top-2.5 text-slate-500 dark:text-slate-400">
-              {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
+              <span className="hidden sm:inline">{hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}</span>
+              <span className="sm:hidden">{hour % 12 === 0 ? 12 : hour % 12}{hour < 12 ? 'a' : 'p'}</span>
             </span>
           </div>
         ))}
       </div>
 
       {/* Events Grid */}
-      <div className="flex-1 relative border-l border-slate-200 dark:border-slate-700">
+      <div 
+        className="flex-1 relative border-l border-slate-200 dark:border-slate-700"
+      >
         {hours.map(hour => (
           <div key={hour} className="h-16 border-t border-slate-200 dark:border-slate-700"></div>
         ))}
@@ -65,12 +68,12 @@ export const DayView: React.FC<DayViewProps> = ({ date, events, onEventClick, on
         {dailyEvents.map(event => (
           <div
             key={event.id}
-            className={`absolute left-2 right-2 p-2 rounded-lg text-white font-medium text-sm cursor-pointer z-10 border-l-4 ${getPriorityColor(event.priority)}`}
+            className={`absolute left-2 right-2 p-2 rounded-lg text-white text-xs sm:text-sm cursor-pointer z-10 border-l-4 ${getPriorityColor(event.priority)}`}
             style={calculateEventStyle(event)}
             onClick={() => onEventClick(event)}
           >
             <p className="font-bold">{event.title}</p>
-            <p className="text-xs opacity-90">
+            <p className="text-xs opacity-90 hidden sm:block">
                 {event.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {event.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </p>
              {event.location && (

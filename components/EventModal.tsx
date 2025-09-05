@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CalendarEvent, Priority } from '../types';
+import { CalendarEvent, Priority, RecurrenceFreq } from '../types';
 import { XIcon } from './icons/XIcon';
 import { MailIcon } from './icons/MailIcon';
 import { MessageScenario } from '../services/geminiService';
@@ -12,7 +12,7 @@ interface EventModalProps {
   onClose: () => void;
   event: CalendarEvent | null;
   onSave: (event: CalendarEvent) => void;
-  onDelete: (eventId: string) => void;
+  onDelete: (eventId: string, recurringEventId?: string) => void;
   onGenerateMessage: (event: CalendarEvent, scenario: MessageScenario) => void;
   onGenerateSms: (event: CalendarEvent, scenario: MessageScenario) => void;
   onViewDirections: (location: string) => void;
@@ -34,7 +34,11 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, event, 
   const [link, setLink] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
+  const [attendees, setAttendees] = useState('');
   const [proximityAlertEnabled, setProximityAlertEnabled] = useState(false);
+  const [recurrenceFreq, setRecurrenceFreq] = useState<RecurrenceFreq>('none');
+  const [recurrenceUntil, setRecurrenceUntil] = useState('');
+
 
   const isNewEvent = !event?.id;
 
@@ -52,14 +56,23 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, event, 
       setLink(event.link || '');
       setContactEmail(event.contactEmail || '');
       setContactPhone(event.contactPhone || '');
+      setAttendees(event.attendees?.join(', ') || '');
       setProximityAlertEnabled(event.proximityAlertEnabled ?? false);
+      setRecurrenceFreq(event.recurrenceRule?.freq || 'none');
+      setRecurrenceUntil(event.recurrenceRule?.until || formatDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))); // Default 30 days from now
     }
   }, [event]);
+
+  const isHighOrMediumPriority = priority === Priority.HIGH || priority === Priority.MEDIUM;
+  const hasLocation = !!location;
+  const hasContact = !!contactEmail || !!contactPhone;
+  const canShowSmartAlert = isHighOrMediumPriority && (hasLocation || hasContact);
 
   if (!isOpen) return null;
 
   const handleSave = () => {
     if (!event) return;
+    const attendeesArray = attendees.split(',').map(e => e.trim()).filter(Boolean);
     const updatedEvent: CalendarEvent = {
       ...event,
       title,
@@ -72,16 +85,29 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, event, 
       link,
       contactEmail,
       contactPhone,
+      attendees: attendeesArray,
       proximityAlertEnabled,
+      recurrenceRule: {
+        freq: recurrenceFreq,
+        until: recurrenceFreq !== 'none' ? recurrenceUntil : undefined,
+      },
     };
     onSave(updatedEvent);
   };
   
   const handleDelete = () => {
-      if(event) onDelete(event.id);
+      if(event) onDelete(event.id, event.recurringEventId);
   }
+
+  const addGoogleMeet = () => {
+    setLink('https://meet.google.com/new');
+  };
   
-  const inputClasses = "w-full p-2 border border-slate-300 rounded-md mt-1 dark:bg-slate-700 dark:border-slate-600 dark:text-white dark:placeholder-slate-400";
+  const addZoom = () => {
+    setLink('https://zoom.us/j/5551112222'); // Placeholder
+  };
+  
+  const inputClasses = "w-full p-2 border border-slate-300 rounded-md mt-1 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary-500)] dark:bg-slate-700 dark:border-slate-600 dark:text-white dark:placeholder-slate-400 dark:focus:ring-offset-slate-800";
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -124,10 +150,27 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, event, 
             </div>
             <div>
                 <label className="text-sm font-medium text-slate-600 dark:text-slate-300">Priority</label>
-                 <select value={priority} onChange={e => setPriority(e.target.value as Priority)} className={`${inputClasses} bg-white`}>
+                 <select value={priority} onChange={e => setPriority(e.target.value as Priority)} className={inputClasses}>
                     {Object.values(Priority).map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
             </div>
+          </div>
+           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium text-slate-600 dark:text-slate-300">Repeats</label>
+              <select value={recurrenceFreq} onChange={e => setRecurrenceFreq(e.target.value as RecurrenceFreq)} className={inputClasses}>
+                <option value="none">Never</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            {recurrenceFreq !== 'none' && (
+              <div>
+                <label className="text-sm font-medium text-slate-600 dark:text-slate-300">Until</label>
+                <input type="date" value={recurrenceUntil} onChange={e => setRecurrenceUntil(e.target.value)} className={inputClasses} />
+              </div>
+            )}
           </div>
           <div>
             <label className="text-sm font-medium text-slate-600 dark:text-slate-300">Description</label>
@@ -146,7 +189,20 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, event, 
           </div>
           <div>
             <label className="text-sm font-medium text-slate-600 dark:text-slate-300">Link</label>
-            <input type="url" value={link} onChange={e => setLink(e.target.value)} className={inputClasses} placeholder="e.g., https://example.com/docs" />
+            <div className="flex items-center gap-2 mt-1">
+                <input type="url" value={link} onChange={e => setLink(e.target.value)} className={`${inputClasses} mt-0 flex-1`} placeholder="e.g., https://example.com/docs" />
+                <button onClick={addGoogleMeet} className="px-3 py-2 text-xs font-semibold bg-slate-100 dark:bg-slate-700 rounded-md hover:bg-slate-200 dark:hover:bg-slate-600 whitespace-nowrap">Add Meet</button>
+                <button onClick={addZoom} className="px-3 py-2 text-xs font-semibold bg-slate-100 dark:bg-slate-700 rounded-md hover:bg-slate-200 dark:hover:bg-slate-600 whitespace-nowrap">Add Zoom</button>
+            </div>
+          </div>
+           <div>
+            <label className="text-sm font-medium text-slate-600 dark:text-slate-300">Attendees</label>
+            <textarea 
+                value={attendees} 
+                onChange={e => setAttendees(e.target.value)} 
+                className={`${inputClasses} h-20`}
+                placeholder="Comma-separated emails..."
+            ></textarea>
           </div>
           <div className="border-t border-slate-200 dark:border-slate-600 my-4"></div>
            <div className="grid grid-cols-2 gap-4">
@@ -185,13 +241,20 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, event, 
                 </div>
             </div>
            )}
-           {priority === Priority.HIGH && contactEmail && (
+           {canShowSmartAlert && (
             <div className="border-t border-slate-200 dark:border-slate-600 pt-4 mt-4">
-                <label className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Proximity Alert</label>
+                <label className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Smart Alert</label>
                 <div className="flex items-start justify-between gap-4">
-                    <p className="text-sm text-slate-500 dark:text-slate-400 max-w-[75%]">
-                        Enable automatic "running late" alerts for this event.
-                    </p>
+                    <div className="text-sm text-slate-500 dark:text-slate-400 max-w-[75%]">
+                      {hasLocation ? (
+                        <>
+                            <p>Get proximity alerts if you're not heading to the event.</p>
+                            <p className="text-xs mt-1">A "Notify Contact" option will appear if a contact is added.</p>
+                        </>
+                      ) : (
+                        <p>Get a reminder before the event is due. If a contact is provided, you'll have an option to quickly notify them.</p>
+                      )}
+                    </div>
                     <ToggleSwitch
                         checked={proximityAlertEnabled}
                         onChange={setProximityAlertEnabled}

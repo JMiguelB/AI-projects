@@ -8,6 +8,7 @@ interface CalendarViewProps {
   events: CalendarEvent[];
   onDayClick: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
+  onEventUpdate: (event: CalendarEvent) => void;
   hasBackgroundImage: boolean;
 }
 
@@ -27,15 +28,38 @@ const getPriorityColor = (priority: Priority) => {
     }
 }
 
-export const CalendarView: React.FC<CalendarViewProps> = ({ days, currentMonth, events, onDayClick, onEventClick, hasBackgroundImage }) => {
+export const CalendarView: React.FC<CalendarViewProps> = ({ days, currentMonth, events, onDayClick, onEventClick, onEventUpdate, hasBackgroundImage }) => {
   const dayCellBg = hasBackgroundImage ? 'bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm' : 'bg-white dark:bg-slate-800';
   const otherMonthDayCellBg = hasBackgroundImage ? 'bg-slate-50/80 dark:bg-slate-800/60 backdrop-blur-sm' : 'bg-slate-50 dark:bg-slate-800/50';
+  const [dragOverDay, setDragOverDay] = React.useState<Date | null>(null);
+
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, event: CalendarEvent) => {
+    e.dataTransfer.setData('text/plain', event.id);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>, day: Date) => {
+    e.preventDefault();
+    setDragOverDay(null);
+    const eventId = e.dataTransfer.getData('text/plain');
+    const event = events.find(ev => ev.id === eventId);
+    if (!event) return;
+
+    // Calculate new start and end dates, preserving the time
+    const newStart = new Date(day);
+    newStart.setHours(event.start.getHours(), event.start.getMinutes(), event.start.getSeconds(), event.start.getMilliseconds());
+
+    const duration = event.end.getTime() - event.start.getTime();
+    const newEnd = new Date(newStart.getTime() + duration);
+    
+    onEventUpdate({ ...event, start: newStart, end: newEnd });
+  };
 
   return (
     <div className="flex-1 grid grid-cols-7 grid-rows-auto shadow-lg rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
       {WEEKDAYS.map(day => (
         <div key={day} className={`text-center font-semibold text-sm text-slate-600 dark:text-slate-300 py-3 border-b border-r border-slate-200 dark:border-slate-700 ${dayCellBg}`}>
-          {day}
+          <span className="hidden sm:inline">{day}</span>
+          <span className="sm:hidden">{day.charAt(0)}</span>
         </div>
       ))}
       
@@ -45,12 +69,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ days, currentMonth, 
         const dailyEvents = events
             .filter(e => isSameDay(e.start, day))
             .sort((a,b) => a.start.getTime() - b.start.getTime());
+        const isDragOver = dragOverDay && isSameDay(dragOverDay, day);
 
         return (
           <div
             key={index}
-            className={`border-b border-r border-slate-200 dark:border-slate-700 p-2 flex flex-col gap-1 min-h-[120px] ${isCurrentMonth ? dayCellBg : otherMonthDayCellBg} transition-colors hover:bg-sky-50/80 dark:hover:bg-sky-900/50 cursor-pointer`}
+            className={`border-b border-r border-slate-200 dark:border-slate-700 p-1 sm:p-2 flex flex-col gap-1 min-h-[90px] md:min-h-[120px] ${isCurrentMonth ? dayCellBg : otherMonthDayCellBg} transition-colors hover:bg-sky-50/80 dark:hover:bg-sky-900/50 cursor-pointer ${isDragOver ? 'ring-2 ring-[var(--primary-500)] ring-inset' : ''}`}
             onClick={() => onDayClick(day)}
+            onDragOver={(e) => { e.preventDefault(); setDragOverDay(day); }}
+            onDragLeave={() => setDragOverDay(null)}
+            onDrop={(e) => handleDrop(e, day)}
           >
             <span className={`self-end text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full ${today ? 'bg-[var(--primary-600)] text-white' : 'text-slate-600 dark:text-slate-300'}`}>
               {day.getDate()}
@@ -58,9 +86,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ days, currentMonth, 
             <div className="flex-1 overflow-y-auto space-y-1">
                 {dailyEvents.map(event => (
                     <div 
-                        key={event.id} 
+                        key={event.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, event)}
                         onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
-                        className="p-1.5 rounded-md text-white text-xs font-medium cursor-pointer flex items-center gap-2 bg-[var(--primary-500)] hover:bg-[var(--primary-600)]"
+                        className="p-1.5 rounded-md text-white text-xs font-medium cursor-grab active:cursor-grabbing flex items-center gap-2 bg-[var(--primary-500)] hover:bg-[var(--primary-600)]"
                     >
                        <div className={`w-2 h-2 rounded-full ${getPriorityColor(event.priority)} flex-shrink-0`}></div>
                        <span className="truncate">{event.title}</span>

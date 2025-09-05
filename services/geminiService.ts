@@ -23,9 +23,20 @@ const eventSchema = {
             link: { type: Type.STRING, description: "A URL or web link associated with the event, if mentioned." },
             contact_email: { type: Type.STRING, description: "A contact email address associated with the event, if mentioned." },
             contact_phone: { type: Type.STRING, description: "A contact phone number associated with the event, if mentioned." },
+            attendees: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of attendee email addresses, if mentioned." },
         },
         required: ["title", "start_date", "start_time", "end_date", "end_time", "category"]
     }
+};
+
+const naturalLanguageEventSchema = {
+    type: Type.OBJECT,
+    properties: {
+        title: { type: Type.STRING, description: "The title of the event." },
+        start_iso: { type: Type.STRING, description: "The calculated start date and time in full ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)." },
+        end_iso: { type: Type.STRING, description: "The calculated end date and time in full ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ). If no duration is mentioned, default to a 1-hour duration." },
+    },
+    required: ["title", "start_iso", "end_iso"]
 };
 
 const prioritySchema = {
@@ -50,12 +61,29 @@ const conflictResolutionSchema = {
   required: ["eventToUpdateId", "new_start_time", "new_end_time"]
 };
 
+const proactiveSuggestionsSchema = {
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      type: { type: Type.STRING, description: "The type of suggestion, either 'ADD_BREAK' or 'BLOCK_WORK_TIME'." },
+      suggestionText: { type: Type.STRING, description: "The user-facing text for the suggestion." },
+      conflictingEventId1: { type: Type.STRING, description: "(For ADD_BREAK) The ID of the first event in the back-to-back sequence." },
+      conflictingEventId2: { type: Type.STRING, description: "(For ADD_BREAK) The ID of the second event, which will be moved." },
+      deadlineEventId: { type: Type.STRING, description: "(For BLOCK_WORK_TIME) The ID of the deadline event." },
+      suggested_start_iso: { type: Type.STRING, description: "(For BLOCK_WORK_TIME) The suggested start time for the new work block in ISO 8601 format." },
+      suggested_end_iso: { type: Type.STRING, description: "(For BLOCK_WORK_TIME) The suggested end time for the new work block in ISO 8601 format." },
+    },
+    required: ["type", "suggestionText"]
+  }
+};
+
 
 export const extractEventsFromImage = async (base64Image: string, mimeType: string): Promise<any[]> => {
     if (process.env.API_KEY === "NO_API_KEY") return [];
     try {
         const currentDate = new Date().toISOString().split('T')[0];
-        const prompt = `You are an expert calendar assistant. Extract all events, tasks, and deadlines from this document or image. For each item, provide the details requested in the JSON schema, including locations, web links, contact emails, and phone numbers. Dates should be in YYYY-MM-DD format and times in HH:MM (24-hour) format. Today's date is ${currentDate}. If a day of the week is mentioned (e.g., 'next Tuesday'), calculate the correct date based on today. Infer end times if not specified (e.g., a meeting might be 1 hour). For deadlines, start and end time can be the same. Respond ONLY with a valid JSON object matching the provided schema.`;
+        const prompt = `You are an expert calendar assistant. Extract all events, tasks, and deadlines from this document or image. For each item, provide the details requested in the JSON schema, including locations, web links, contact emails, phone numbers, and a list of any attendees. Dates should be in YYYY-MM-DD format and times in HH:MM (24-hour) format. Today's date is ${currentDate}. If a day of the week is mentioned (e.g., 'next Tuesday'), calculate the correct date based on today. Infer end times if not specified (e.g., a meeting might be 1 hour). For deadlines, start and end time can be the same. Respond ONLY with a valid JSON object matching the provided schema.`;
 
         const imagePart = { inlineData: { data: base64Image, mimeType } };
         const textPart = { text: prompt };
@@ -77,6 +105,36 @@ export const extractEventsFromImage = async (base64Image: string, mimeType: stri
         throw new Error("Failed to analyze the document. The AI could not extract event information.");
     }
 };
+
+export const parseNaturalLanguageEvent = async (command: string): Promise<any> => {
+    if (process.env.API_KEY === "NO_API_KEY") {
+        throw new Error("AI features are disabled.");
+    }
+    try {
+        const prompt = `You are an intelligent calendar assistant. Parse the following user command to create a calendar event.
+- Today's date is ${new Date().toISOString()}.
+- Calculate the correct date and time based on relative terms like "tomorrow", "next Friday", etc.
+- If no duration is specified, assume a 1-hour duration for the event.
+- Respond ONLY with a valid JSON object that strictly follows the provided schema.
+
+User command: "${command}"`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: naturalLanguageEventSchema
+            }
+        });
+        const jsonStr = response.text.trim();
+        return JSON.parse(jsonStr);
+    } catch (error) {
+        console.error("Error parsing natural language event:", error);
+        throw new Error("The AI failed to understand the event details.");
+    }
+};
+
 
 export const prioritizeTasks = async (events: CalendarEvent[]): Promise<{id: string, priority: Priority}[]> => {
     if (process.env.API_KEY === "NO_API_KEY" || events.length === 0) return [];
@@ -184,7 +242,11 @@ export const generateContactMessage = async (
   let scenarioPrompt = '';
   switch (scenario) {
     case 'late':
-      scenarioPrompt = `I am running a few minutes late for our "${event.title}" meeting scheduled for ${event.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. I apologize for the delay and will be there as soon as possible.`;
+      if (event.location) {
+        scenarioPrompt = `I am running a few minutes late for our "${event.title}" meeting scheduled for ${event.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. I apologize for the delay and will be there as soon as possible.`;
+      } else {
+        scenarioPrompt = `I am writing regarding the deadline for "${event.title}". I might need a little more time and will submit it as soon as possible. I apologize for any inconvenience.`;
+      }
       break;
     case 'cancel':
       scenarioPrompt = `I unfortunately need to cancel our "${event.title}" meeting scheduled for ${event.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} today. Something unexpected has come up. I'd like to reschedule for a later date.`;
@@ -297,5 +359,55 @@ ${JSON.stringify(upcomingEvents)}
     } catch (error) {
         console.error("Error critiquing schedule:", error);
         throw new Error("The AI failed to analyze your schedule.");
+    }
+};
+
+export const getProactiveSuggestions = async (events: CalendarEvent[]): Promise<any[]> => {
+    if (process.env.API_KEY === "NO_API_KEY" || events.length < 2) {
+        return [];
+    }
+    const today = new Date();
+    const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const upcomingEvents = events
+        .filter(e => e.start > today && e.start <= nextWeek)
+        .map(e => ({
+            id: e.id,
+            title: e.title,
+            start: e.start.toISOString(),
+            end: e.end.toISOString(),
+            priority: e.priority,
+            category: e.category
+        }));
+
+    if (upcomingEvents.length < 2) {
+        return [];
+    }
+
+    const prompt = `You are a world-class productivity coach. Analyze the user's schedule for the next 7 days to find opportunities for improvement. Today is ${new Date().toISOString()}.
+Your goal is to identify two specific types of issues and provide actionable JSON solutions:
+1.  **Back-to-Back Burnout**: Find events that are scheduled immediately after one another (end time of first event equals start time of second event) without any break. Suggest adding a 15-minute break by pushing the second event forward. Identify the events by their IDs.
+2.  **Deadline Cramming**: Find events that are high-priority AND have a category of 'Exam', 'Project Deadline', 'Homework', or 'Test', OR have titles containing keywords like 'exam', 'test', 'final report', or 'presentation'. For these critical events, check if there is a corresponding 'Study Session' or 'Work Session' event scheduled in the 3 days prior. If not, suggest creating a new 2-hour work block on a free day before the deadline, ideally between 9 AM and 5 PM local time.
+
+Analyze the provided schedule and respond ONLY with a valid JSON array of suggestions matching the provided schema. If there are no suggestions, return an empty array.
+
+User's Schedule:
+${JSON.stringify(upcomingEvents)}
+`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: proactiveSuggestionsSchema,
+            }
+        });
+        const jsonStr = response.text.trim();
+        return JSON.parse(jsonStr);
+    } catch (error) {
+        console.error("Error getting proactive suggestions:", error);
+        throw new Error("The AI failed to generate proactive suggestions.");
     }
 };

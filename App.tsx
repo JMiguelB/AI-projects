@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { CalendarEvent, Priority, ThemeMode } from './types';
 import { useCalendar } from './hooks/useCalendar';
 import { Header } from './components/Header';
@@ -15,7 +15,7 @@ import { ConflictModal } from './components/ConflictModal';
 import { ScheduleAnalysisModal } from './components/ScheduleAnalysisModal';
 import { Notification } from './components/Notification';
 import { ThemeCustomizer } from './components/ThemeCustomizer';
-import { extractEventsFromImage, prioritizeTasks, planStudyTime, processVoiceCommand, generateContactMessage, MessageScenario, critiqueSchedule } from './services/geminiService';
+import { extractEventsFromImage, prioritizeTasks, planStudyTime, processVoiceCommand, generateContactMessage, MessageScenario, critiqueSchedule, parseNaturalLanguageEvent, getProactiveSuggestions } from './services/geminiService';
 import { useProximityAlerter } from './hooks/useProximityAlerter';
 import { themes, fonts, ThemeColor, FontFamily } from './theme';
 import { isOverlapping } from './utils/time';
@@ -56,6 +56,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [notification, setNotification] = useState<NotificationType | null>(null);
   const [view, setView] = useState<CalendarViewType>('month');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // State for AI message generation
   const [aiMessage, setAiMessage] = useState({ recipient: '', subject: '', body: '' });
@@ -68,6 +69,10 @@ const App: React.FC = () => {
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
   const [fontFamily, setFontFamily] = useState<FontFamily>('sans');
   const [isProximityAlerterEnabled, setIsProximityAlerterEnabled] = useState(false);
+  const [proximityAlertThreshold, setProximityAlertThreshold] = useState(10);
+  const [movementThreshold, setMovementThreshold] = useState(0.1);
+
+  const notificationTimeoutIds = useRef<NodeJS.Timeout[]>([]);
 
   const { 
     currentDate, setCurrentDate, daysInMonth, 
@@ -82,13 +87,15 @@ const App: React.FC = () => {
     try {
       const savedSettings = localStorage.getItem('calendarSettings');
       if (savedSettings) {
-        const { name, mode, color, bg, font, proximityAlertsEnabled } = JSON.parse(savedSettings);
+        const { name, mode, color, bg, font, proximityAlertsEnabled, alertThreshold, moveThreshold } = JSON.parse(savedSettings);
         if (name) setCalendarName(name);
         if (mode) setThemeMode(mode);
         if (color) setThemeColor(color);
         if (bg) setBackgroundImage(bg);
         if (font) setFontFamily(font);
         if (proximityAlertsEnabled) setIsProximityAlerterEnabled(proximityAlertsEnabled);
+        if (alertThreshold) setProximityAlertThreshold(alertThreshold);
+        if (moveThreshold) setMovementThreshold(moveThreshold);
       }
     } catch (error) {
         console.error("Failed to parse settings from localStorage", error);
@@ -104,6 +111,8 @@ const App: React.FC = () => {
       bg: backgroundImage,
       font: fontFamily,
       proximityAlertsEnabled: isProximityAlerterEnabled,
+      alertThreshold: proximityAlertThreshold,
+      moveThreshold: movementThreshold,
     });
     localStorage.setItem('calendarSettings', settings);
 
@@ -126,7 +135,7 @@ const App: React.FC = () => {
 
     styleElement.innerHTML = css;
     document.head.appendChild(styleElement);
-  }, [calendarName, themeMode, themeColor, backgroundImage, fontFamily, isProximityAlerterEnabled]);
+  }, [calendarName, themeMode, themeColor, backgroundImage, fontFamily, isProximityAlerterEnabled, proximityAlertThreshold, movementThreshold]);
 
 
   // Load sample events on first render
@@ -143,7 +152,10 @@ const App: React.FC = () => {
         category: 'Meeting',
         priority: Priority.MEDIUM,
         location: 'Online',
-        contactEmail: 'team-lead@example.com'
+        contactEmail: 'team-lead@example.com',
+        attendees: ['dev1@example.com', 'dev2@example.com'],
+        autoNotified: false,
+        proximityAlertEnabled: true,
       },
       {
         id: '2',
@@ -152,7 +164,10 @@ const App: React.FC = () => {
         end: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 17, 0),
         category: 'Project Deadline',
         priority: Priority.HIGH,
-        link: 'https://example.com/proposals'
+        link: 'https://example.com/proposals',
+        contactEmail: 'professor@example.com',
+        autoNotified: false,
+        proximityAlertEnabled: true,
       },
        {
         id: '3',
@@ -182,6 +197,39 @@ const App: React.FC = () => {
     setEvents(sampleEvents);
   }, []);
 
+  // Native Browser Notifications
+  useEffect(() => {
+    // FIX: Use window.Notification to avoid conflict with the imported Notification component.
+    window.Notification.requestPermission();
+    
+    // Clear previous timeouts
+    notificationTimeoutIds.current.forEach(clearTimeout);
+    notificationTimeoutIds.current = [];
+
+    events.forEach(event => {
+      const timeUntilEvent = event.start.getTime() - Date.now();
+      const notificationTime = timeUntilEvent - 10 * 60 * 1000; // 10 minutes before
+
+      if (notificationTime > 0) {
+        const timeoutId = setTimeout(() => {
+          // FIX: Use window.Notification to avoid conflict with the imported Notification component.
+          if (window.Notification.permission === 'granted') {
+            // FIX: Use window.Notification to avoid conflict with the imported Notification component.
+            new window.Notification(event.title, {
+              body: `Starts at ${event.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+              icon: '/logo.png', // Assuming a logo exists
+            });
+          }
+        }, notificationTime);
+        notificationTimeoutIds.current.push(timeoutId);
+      }
+    });
+
+    return () => {
+      notificationTimeoutIds.current.forEach(clearTimeout);
+    }
+  }, [events]);
+
   const showNotification = (message: string, type: 'success' | 'error' | 'info', options?: Partial<NotificationType>) => {
     setNotification({ message, type, ...options });
   };
@@ -197,51 +245,98 @@ const App: React.FC = () => {
   };
   
   const saveEvent = (eventToSave: CalendarEvent) => {
-    const isExisting = events.some(e => e.id === eventToSave.id);
-    let notificationLink: { linkUrl?: string; linkText?: string } = {};
+    const isNew = !eventToSave.id;
 
-    if (eventToSave.link) {
-      notificationLink = { linkUrl: eventToSave.link, linkText: 'Open Link' };
-    } else if (eventToSave.location) {
-      notificationLink = { 
-          linkUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(eventToSave.location)}`, 
-          linkText: 'View Location' 
-      };
-    }
-    
-    if (isExisting) {
-      setEvents(events.map(e => e.id === eventToSave.id ? eventToSave : e));
-      showNotification('Event updated successfully!', 'success', notificationLink);
-    } else {
-      const newEventWithId = { ...eventToSave, id: Date.now().toString() + Math.random().toString() };
-      setEvents(prev => [...prev, newEventWithId]);
-      showNotification('Event created successfully!', 'success', notificationLink);
+    // Handle Recurring Events
+    if (eventToSave.recurrenceRule && eventToSave.recurrenceRule.freq !== 'none') {
+        const recurringEvents: CalendarEvent[] = [];
+        const recurringEventId = eventToSave.recurringEventId || Date.now().toString();
+        let currentInstanceDate = new Date(eventToSave.start);
+        const endDate = new Date(eventToSave.recurrenceRule.until + 'T23:59:59');
+        const duration = eventToSave.end.getTime() - eventToSave.start.getTime();
+
+        while (currentInstanceDate <= endDate) {
+            const newEventInstance: CalendarEvent = {
+                ...eventToSave,
+                id: `${recurringEventId}-${currentInstanceDate.getTime()}`,
+                recurringEventId: recurringEventId,
+                start: new Date(currentInstanceDate),
+                end: new Date(currentInstanceDate.getTime() + duration),
+            };
+            recurringEvents.push(newEventInstance);
+
+            switch (eventToSave.recurrenceRule.freq) {
+                case 'daily': currentInstanceDate.setDate(currentInstanceDate.getDate() + 1); break;
+                case 'weekly': currentInstanceDate.setDate(currentInstanceDate.getDate() + 7); break;
+                case 'monthly': currentInstanceDate.setMonth(currentInstanceDate.getMonth() + 1); break;
+            }
+        }
+        
+        setEvents(prev => [
+            ...prev.filter(e => e.recurringEventId !== recurringEventId), // Remove old instances
+            ...recurringEvents
+        ]);
+
+        showNotification(`Recurring event "${eventToSave.title}" has been saved.`, 'success');
+
+    } else { // Handle Single Event
+        if (isNew) {
+            const newEventWithId = { ...eventToSave, id: Date.now().toString() };
+            setEvents(prev => [...prev, newEventWithId]);
+            showNotification('Event created successfully!', 'success');
+        } else {
+            setEvents(prev => prev.map(e => e.id === eventToSave.id ? eventToSave : e));
+            showNotification('Event updated successfully!', 'success');
+        }
     }
 
     setIsEventModalOpen(false);
     setSelectedEvent(null);
-  }
+}
 
   const handleSaveEvent = (eventToSave: CalendarEvent) => {
-    // Check for conflicts
-    const conflictingEvent = events.find(
-      e => e.id !== eventToSave.id && isOverlapping(e, eventToSave)
-    );
+    // Check for conflicts only on non-recurring events for simplicity
+    if (eventToSave.recurrenceRule?.freq === 'none' || !eventToSave.recurrenceRule) {
+      const conflictingEvent = events.find(
+        e => e.id !== eventToSave.id && isOverlapping(e, eventToSave)
+      );
 
-    if (conflictingEvent) {
-      setConflictData({ eventToSave, conflictingEvent });
-      setIsConflictModalOpen(true);
-      setIsEventModalOpen(false);
-    } else {
-      saveEvent(eventToSave);
+      if (conflictingEvent) {
+        setConflictData({ eventToSave, conflictingEvent });
+        setIsConflictModalOpen(true);
+        setIsEventModalOpen(false);
+        return;
+      }
     }
+    saveEvent(eventToSave);
+  };
+  
+  const handleEventUpdate = (eventToUpdate: CalendarEvent) => {
+    setEvents(prev => prev.map(e => (e.id === eventToUpdate.id ? eventToUpdate : e)));
+    showNotification('Event time updated!', 'success');
   };
 
-  const handleDeleteEvent = (eventId: string) => {
-    setEvents(events.filter(e => e.id !== eventId));
+  const handleDeleteEvent = (eventId: string, recurringEventId?: string) => {
+    const eventToDelete = events.find(e => e.id === eventId);
+    if (!eventToDelete) return;
+
+    if (recurringEventId) {
+        if (window.confirm("This is a recurring event. Do you want to delete only this occurrence or all future occurrences? \n\nOK = Delete Future | Cancel = Delete This One")) {
+            // Delete all future
+            setEvents(prev => prev.filter(e => !(e.recurringEventId === recurringEventId && e.start >= eventToDelete.start)));
+            showNotification('All future occurrences deleted.', 'info');
+        } else {
+            // Delete single
+            setEvents(prev => prev.filter(e => e.id !== eventId));
+            showNotification('Event deleted.', 'info');
+        }
+    } else {
+        setEvents(prev => prev.filter(e => e.id !== eventId));
+        showNotification('Event deleted.', 'info');
+    }
+
     setIsEventModalOpen(false);
     setSelectedEvent(null);
-    showNotification('Event deleted.', 'info');
   };
   
   const handleManualAddClick = () => {
@@ -263,6 +358,7 @@ const App: React.FC = () => {
       contactPhone: '',
       autoNotified: false,
       proximityAlertEnabled: false,
+      recurrenceRule: { freq: 'none' },
     });
     setIsEventModalOpen(true);
   }
@@ -290,6 +386,7 @@ const App: React.FC = () => {
         link: item.link || '',
         contactEmail: item.contact_email || '',
         contactPhone: item.contact_phone || '',
+        attendees: item.attendees || [],
         autoNotified: false,
         proximityAlertEnabled: false,
       }));
@@ -380,6 +477,66 @@ const App: React.FC = () => {
      }
    };
 
+   const handleProactiveAssistant = async () => {
+    setIsLoading(true);
+    showNotification('AI is analyzing your schedule for suggestions...', 'info');
+    try {
+      const suggestions = await getProactiveSuggestions(events);
+      if (suggestions.length === 0) {
+        showNotification('Your schedule looks great! No immediate suggestions from the AI.', 'success');
+        return;
+      }
+
+      suggestions.forEach((suggestion: any, index: number) => {
+        setTimeout(() => { // Stagger notifications
+          if (suggestion.type === 'ADD_BREAK') {
+            showNotification(suggestion.suggestionText, 'info', {
+              actionText: 'Add 15 min Break',
+              onAction: () => {
+                const eventToMove = events.find(e => e.id === suggestion.conflictingEventId2);
+                if (eventToMove) {
+                  const newStart = new Date(eventToMove.start.getTime() + 15 * 60 * 1000);
+                  const newEnd = new Date(eventToMove.end.getTime() + 15 * 60 * 1000);
+                  handleEventUpdate({ ...eventToMove, start: newStart, end: newEnd });
+                  showNotification('Break added!', 'success');
+                }
+              }
+            });
+          } else if (suggestion.type === 'BLOCK_WORK_TIME') {
+            showNotification(suggestion.suggestionText, 'info', {
+              actionText: 'Schedule It',
+              onAction: () => {
+                const deadlineEvent = events.find(e => e.id === suggestion.deadlineEventId);
+                if (deadlineEvent) {
+                  const newWorkEvent: CalendarEvent = {
+                    id: Date.now().toString() + Math.random().toString(),
+                    title: `Work on: ${deadlineEvent.title}`,
+                    start: new Date(suggestion.suggested_start_iso),
+                    end: new Date(suggestion.suggested_end_iso),
+                    category: 'Work Session',
+                    priority: Priority.MEDIUM,
+                    description: `Dedicated time to prepare for ${deadlineEvent.title}.`,
+                    autoNotified: false,
+                    proximityAlertEnabled: false,
+                    recurrenceRule: { freq: 'none' },
+                  };
+                  setEvents(prev => [...prev, newWorkEvent]);
+                  showNotification('Work session scheduled!', 'success');
+                }
+              }
+            });
+          }
+        }, index * 1000); // Display notifications one after another
+      });
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+      showNotification(errorMessage, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleVoiceCommand = () => {
     if (!SpeechRecognition) {
       showNotification('Voice recognition is not supported in your browser.', 'error');
@@ -449,6 +606,31 @@ const App: React.FC = () => {
       showNotification(errorMessage, 'error');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleNlpParse = async (command: string) => {
+    setIsLoading(true);
+    showNotification("AI is parsing your command...", 'info');
+    try {
+        const parsedData = await parseNaturalLanguageEvent(command);
+        setSelectedEvent({
+            id: '', // New event
+            title: parsedData.title,
+            start: new Date(parsedData.start_iso),
+            end: new Date(parsedData.end_iso),
+            category: 'Personal',
+            priority: Priority.NONE,
+            autoNotified: false,
+            proximityAlertEnabled: false,
+            recurrenceRule: { freq: 'none' },
+        });
+        setIsEventModalOpen(true);
+    } catch(error) {
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+        showNotification(errorMessage, 'error');
+    } finally {
+        setIsLoading(false);
     }
   };
 
@@ -540,18 +722,34 @@ const App: React.FC = () => {
     else if (view === 'year') goToPreviousYear();
   };
   
-  const handlePotentialLate = useCallback((event: CalendarEvent) => {
+  const handleSmartAlert = useCallback((event: CalendarEvent) => {
     setEvents(prevEvents =>
       prevEvents.map(e => (e.id === event.id ? { ...e, autoNotified: true } : e))
     );
 
-    showNotification(`Are you running late for "${event.title}"?`, 'info', {
-      actionText: 'Notify Contact',
-      onAction: () => handleGenerateAiMessage(event, 'late'),
-    });
+    const isProximityType = !!event.location;
+    const message = isProximityType
+      ? `Are you running late for "${event.title}"?`
+      : `Reminder: "${event.title}" is due soon.`;
+
+    const options: Partial<NotificationType> = {};
+    if (event.contactEmail || event.contactPhone) {
+        options.actionText = 'Notify Contact';
+        options.onAction = () => {
+            // The geminiService will adapt the message content based on location.
+            // Prefer email if both are available.
+            if (event.contactEmail) {
+                handleGenerateAiMessage(event, 'late');
+            } else if (event.contactPhone) {
+                handleGenerateAiSms(event, 'late');
+            }
+        };
+    }
+
+    showNotification(message, 'info', options);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useProximityAlerter(events, handlePotentialLate, isProximityAlerterEnabled);
+  useProximityAlerter(events, handleSmartAlert, isProximityAlerterEnabled, proximityAlertThreshold, movementThreshold);
 
   const renderCalendarView = () => {
       switch (view) {
@@ -582,6 +780,7 @@ const App: React.FC = () => {
                 events={events}
                 onEventClick={handleEventClick}
                 onDayClick={handleDayClick}
+                onEventUpdate={handleEventUpdate}
                 hasBackgroundImage={!!backgroundImage}
               />;
       }
@@ -597,8 +796,16 @@ const App: React.FC = () => {
         onPrev={handlePrev}
         onToday={goToToday}
         onViewChange={setView}
+        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
       />
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
+        {isSidebarOpen && (
+            <div
+                onClick={() => setIsSidebarOpen(false)}
+                className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden"
+                aria-hidden="true"
+            ></div>
+        )}
         <Sidebar 
             events={events}
             onAddEvent={() => setIsFileUploadModalOpen(true)}
@@ -606,12 +813,16 @@ const App: React.FC = () => {
             onPrioritize={handlePrioritize}
             onPlanStudy={handlePlanStudy}
             onCritiqueSchedule={handleCritiqueSchedule}
+            onProactiveAssistant={handleProactiveAssistant}
             onVoiceCommand={handleVoiceCommand}
+            onNlpParse={handleNlpParse}
             onCustomize={() => setIsThemeModalOpen(true)}
             isLoadingAI={isLoading}
+            isOpen={isSidebarOpen}
+            onClose={() => setIsSidebarOpen(false)}
         />
         <main 
-          className="flex-1 p-4 bg-slate-100 dark:bg-slate-900 flex overflow-auto bg-cover bg-center"
+          className="flex-1 p-2 sm:p-4 bg-slate-100 dark:bg-slate-900 flex overflow-auto bg-cover bg-center"
           style={{ backgroundImage: 'var(--background-image-url)' }}
         >
             {renderCalendarView()}
@@ -694,6 +905,10 @@ const App: React.FC = () => {
         onBgChange={setBackgroundImage}
         isProximityAlertsEnabled={isProximityAlerterEnabled}
         onProximityAlertsChange={setIsProximityAlerterEnabled}
+        proximityAlertThreshold={proximityAlertThreshold}
+        onProximityAlertThresholdChange={setProximityAlertThreshold}
+        movementThreshold={movementThreshold}
+        onMovementThresholdChange={setMovementThreshold}
       />
       
       {notification && (

@@ -41,7 +41,7 @@ export const SendMessageModal: React.FC<SendMessageModalProps> = ({ isOpen, onCl
             <textarea
               value={body}
               onChange={e => onBodyChange(e.target.value)}
-              className="w-full p-2 border border-slate-300 rounded-md mt-1 h-36 dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+              className="w-full p-2 border border-slate-300 rounded-md mt-1 h-36 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary-500)] dark:bg-slate-700 dark:border-slate-600 dark:text-white dark:focus:ring-offset-slate-800"
             ></textarea>
           </div>
         </div>

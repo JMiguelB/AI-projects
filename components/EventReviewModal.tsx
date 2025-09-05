@@ -62,7 +62,7 @@ const EventReviewItem: React.FC<EventReviewItemProps> = ({ event, onUpdate, onTo
     setEditableEventData(prev => ({...prev, [field]: value}));
   };
 
-  const inputClasses = "w-full p-2 border border-slate-300 rounded-md mt-1 dark:bg-slate-600 dark:border-slate-500 dark:text-white dark:placeholder-slate-400";
+  const inputClasses = "w-full p-2 border border-slate-300 rounded-md mt-1 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary-500)] dark:bg-slate-600 dark:border-slate-500 dark:text-white dark:placeholder-slate-400 dark:focus:ring-offset-slate-700";
 
   return (
     <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">

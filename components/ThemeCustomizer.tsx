@@ -21,6 +21,10 @@ interface ThemeCustomizerProps {
   onBgChange: (bg: string | null) => void;
   isProximityAlertsEnabled: boolean;
   onProximityAlertsChange: (enabled: boolean) => void;
+  proximityAlertThreshold: number;
+  onProximityAlertThresholdChange: (minutes: number) => void;
+  movementThreshold: number;
+  onMovementThresholdChange: (km: number) => void;
 }
 
 export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({
@@ -37,6 +41,10 @@ export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({
   onBgChange,
   isProximityAlertsEnabled,
   onProximityAlertsChange,
+  proximityAlertThreshold,
+  onProximityAlertThresholdChange,
+  movementThreshold,
+  onMovementThresholdChange,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,6 +60,8 @@ export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({
       reader.readAsDataURL(file);
     }
   };
+  
+  const inputClasses = "w-full p-2 border border-slate-300 rounded-md bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary-500)] dark:bg-slate-700 dark:border-slate-600 dark:text-white dark:focus:ring-offset-slate-800";
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -72,7 +82,7 @@ export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({
               type="text"
               value={calendarName}
               onChange={(e) => onCalendarNameChange(e.target.value)}
-              className="w-full p-2 border border-slate-300 rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+              className={inputClasses}
             />
           </div>
 
@@ -118,7 +128,7 @@ export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({
               id="font-select"
               value={currentFont}
               onChange={(e) => onFontChange(e.target.value as FontFamily)}
-              className="w-full p-2 border border-slate-300 rounded-md bg-white capitalize dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+              className={`${inputClasses} capitalize`}
             >
               {(Object.keys(fonts) as FontFamily[]).map(font => (
                 <option key={font} value={font}>{font}</option>
@@ -153,18 +163,46 @@ export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({
             </div>
           </div>
           
-           {/* Proximity Alerter Toggle */}
+           {/* Smart Alerter Toggle */}
           <div className="border-t border-slate-200 dark:border-slate-600 pt-5">
-            <label className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Proximity Alerts</label>
+            <label className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Smart Alerts</label>
             <div className="flex items-start justify-between gap-4">
                 <p className="text-sm text-slate-500 dark:text-slate-400 max-w-[75%]">
-                    Get an alert to notify a contact if you haven't left for a high-priority event.
+                    Get timely alerts for important events. For events with a location, it checks if you're on your way. For others, it acts as a reminder.
                 </p>
                 <ToggleSwitch
                     checked={isProximityAlertsEnabled}
                     onChange={onProximityAlertsChange}
                 />
             </div>
+            {isProximityAlertsEnabled && (
+                <div className="mt-4 space-y-3 pl-2 border-l-2 border-slate-200 dark:border-slate-600">
+                    <div>
+                        <label htmlFor="alert-window" className="text-xs font-medium text-slate-500 dark:text-slate-400 block">Alert Window (minutes)</label>
+                        <input
+                            id="alert-window"
+                            type="number"
+                            value={proximityAlertThreshold}
+                            onChange={(e) => onProximityAlertThresholdChange(Number(e.target.value))}
+                            className={`${inputClasses} mt-1 text-sm`}
+                            min="1"
+                            step="1"
+                        />
+                    </div>
+                     <div>
+                        <label htmlFor="movement-threshold" className="text-xs font-medium text-slate-500 dark:text-slate-400 block">Movement Threshold (km)</label>
+                        <input
+                            id="movement-threshold"
+                            type="number"
+                            value={movementThreshold}
+                            onChange={(e) => onMovementThresholdChange(Number(e.target.value))}
+                            className={`${inputClasses} mt-1 text-sm`}
+                            min="0.01"
+                            step="0.01"
+                        />
+                    </div>
+                </div>
+            )}
           </div>
         </div>
         

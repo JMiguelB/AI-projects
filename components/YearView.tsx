@@ -46,7 +46,7 @@ const MiniCalendar: React.FC<MiniCalendarProps> = ({ year, month, events, onMont
         {days.map((day, index) => {
           if (!day) return <div key={`empty-${index}`}></div>;
           
-          const hasEvent = eventsInMonth.some(e => isSameDay(e.start, day));
+          const dailyEventsCount = eventsInMonth.filter(e => isSameDay(e.start, day)).length;
           const isToday = isSameDay(new Date(), day);
 
           return (
@@ -58,7 +58,13 @@ const MiniCalendar: React.FC<MiniCalendarProps> = ({ year, month, events, onMont
               <span className={`flex items-center justify-center w-6 h-6 rounded-full ${isToday ? 'bg-[var(--primary-600)] text-white font-bold' : ''} hover:bg-slate-100 dark:hover:bg-slate-700`}>
                 {day.getDate()}
               </span>
-              {hasEvent && <div className={`absolute bottom-0 w-1 h-1 rounded-full ${isToday ? 'bg-white' : 'bg-red-500'}`}></div>}
+              {dailyEventsCount > 0 && (
+                <div className="absolute bottom-0 w-full flex justify-center items-center gap-0.5">
+                    <div className={`w-1 h-1 rounded-full ${isToday ? 'bg-white' : 'bg-[var(--primary-500)]'}`}></div>
+                    {dailyEventsCount > 1 && <div className={`w-1 h-1 rounded-full ${isToday ? 'bg-white' : 'bg-yellow-500'}`}></div>}
+                    {dailyEventsCount > 2 && <div className={`w-1 h-1 rounded-full ${isToday ? 'bg-white' : 'bg-red-500'}`}></div>}
+                </div>
+              )}
             </div>
           );
         })}

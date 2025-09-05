@@ -8,80 +8,80 @@ interface Coords {
 }
 
 const POLLING_INTERVAL = 30 * 1000; // Check every 30 seconds
-const ALERT_WINDOW_MINUTES = 10; // Alert if event is within 10 minutes
-const MOVEMENT_THRESHOLD_KM = 0.1; // 100 meters
 
 export const useProximityAlerter = (
   events: CalendarEvent[],
   onPotentialLate: (event: CalendarEvent) => void,
-  isEnabled: boolean
+  isEnabled: boolean,
+  alertWindowMinutes: number,
+  movementThresholdKm: number
 ) => {
   const lastPositionRef = useRef<Coords | null>(null);
 
   useEffect(() => {
     if (!isEnabled) {
-      // Feature is disabled, do nothing.
       return;
     }
 
-    const checkLocationAndEvents = () => {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const currentCoords = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          };
+    const checkSmartAlerts = () => {
+      const now = new Date();
+      const alertThreshold = new Date(now.getTime() + alertWindowMinutes * 60 * 1000);
 
-          const now = new Date();
-          const alertThreshold = new Date(now.getTime() + ALERT_WINDOW_MINUTES * 60 * 1000);
-
-          const upcomingHighPriorityEvents = events.filter(event =>
-            event.priority === Priority.HIGH &&
-            event.contactEmail &&
-            !event.autoNotified &&
-            event.proximityAlertEnabled && // Check the per-event flag
-            event.start > now &&
-            event.start <= alertThreshold
-          );
-
-          if (upcomingHighPriorityEvents.length === 0) {
-            // Update position even if no events, to establish a baseline
-            lastPositionRef.current = currentCoords;
-            return;
-          }
-
-          if (lastPositionRef.current) {
-            const distanceMoved = haversineDistance(
-              lastPositionRef.current.latitude,
-              lastPositionRef.current.longitude,
-              currentCoords.latitude,
-              currentCoords.longitude
-            );
-            
-            if (distanceMoved < MOVEMENT_THRESHOLD_KM) {
-              // User has not moved significantly
-              upcomingHighPriorityEvents.forEach(event => {
-                onPotentialLate(event);
-              });
-            }
-          }
-          
-          lastPositionRef.current = currentCoords;
-        },
-        (error) => {
-          // Can't get location, do nothing
-          console.warn("Could not get user location for proximity alert:", error.message);
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      const alertableEvents = events.filter(event =>
+        (event.priority === Priority.HIGH || event.priority === Priority.MEDIUM) &&
+        !event.autoNotified &&
+        event.proximityAlertEnabled &&
+        event.start > now &&
+        event.start <= alertThreshold
       );
+
+      const proximityEvents = alertableEvents.filter(e => !!e.location);
+      const reminderEvents = alertableEvents.filter(e => !e.location);
+
+      // Handle time-based reminders immediately.
+      reminderEvents.forEach(event => {
+        onPotentialLate(event);
+      });
+
+      // Handle location-based proximity alerts.
+      if (proximityEvents.length > 0) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const currentCoords = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            };
+
+            if (lastPositionRef.current) {
+              const distanceMoved = haversineDistance(
+                lastPositionRef.current.latitude,
+                lastPositionRef.current.longitude,
+                currentCoords.latitude,
+                currentCoords.longitude
+              );
+              
+              if (distanceMoved < movementThresholdKm) {
+                // User has not moved significantly, trigger alerts.
+                proximityEvents.forEach(event => {
+                  onPotentialLate(event);
+                });
+              }
+            }
+            
+            // Always update the last known position.
+            lastPositionRef.current = currentCoords;
+          },
+          (error) => {
+            console.warn("Could not get user location for proximity alert:", error.message);
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+      }
     };
 
-    const intervalId = setInterval(checkLocationAndEvents, POLLING_INTERVAL);
-    
-    // Initial check
-    checkLocationAndEvents();
+    const intervalId = setInterval(checkSmartAlerts, POLLING_INTERVAL);
+    checkSmartAlerts(); // Initial check
 
-    // The cleanup function will run when isEnabled changes to false, stopping the interval.
     return () => clearInterval(intervalId);
-  }, [events, onPotentialLate, isEnabled]);
+  }, [events, onPotentialLate, isEnabled, alertWindowMinutes, movementThresholdKm]);
 };
