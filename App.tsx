@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { CalendarEvent, Priority, ThemeMode } from './types';
+import { CalendarEvent, Priority, ThemeMode, BackgroundSettings, Task, SharedUser, Permission } from './types';
 import { useCalendar } from './hooks/useCalendar';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -15,6 +15,7 @@ import { ConflictModal } from './components/ConflictModal';
 import { ScheduleAnalysisModal } from './components/ScheduleAnalysisModal';
 import { Notification } from './components/Notification';
 import { ThemeCustomizer } from './components/ThemeCustomizer';
+import { ShareModal } from './components/ShareModal';
 import { extractEventsFromImage, prioritizeTasks, planStudyTime, processVoiceCommand, generateContactMessage, MessageScenario, critiqueSchedule, parseNaturalLanguageEvent, getProactiveSuggestions } from './services/geminiService';
 import { useProximityAlerter } from './hooks/useProximityAlerter';
 import { themes, fonts, ThemeColor, FontFamily } from './theme';
@@ -51,12 +52,19 @@ const App: React.FC = () => {
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isConflictModalOpen, setIsConflictModalOpen] = useState(false);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [conflictData, setConflictData] = useState<ConflictDataType | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [notification, setNotification] = useState<NotificationType | null>(null);
   const [view, setView] = useState<CalendarViewType>('month');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
+  // State for Tasks
+  const [tasks, setTasks] = useState<Task[]>([]);
+
+  // State for Sharing
+  const [sharedUsers, setSharedUsers] = useState<SharedUser[]>([]);
 
   // State for AI message generation
   const [aiMessage, setAiMessage] = useState({ recipient: '', subject: '', body: '' });
@@ -66,7 +74,11 @@ const App: React.FC = () => {
   const [calendarName, setCalendarName] = useState('MyPlanner');
   const [themeMode, setThemeMode] = useState<ThemeMode>('light');
   const [themeColor, setThemeColor] = useState<ThemeColor>('blue');
-  const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
+  const [backgroundSettings, setBackgroundSettings] = useState<BackgroundSettings>({
+    mode: 'single',
+    singleImage: null,
+    monthlyImages: {},
+  });
   const [fontFamily, setFontFamily] = useState<FontFamily>('sans');
   const [isProximityAlerterEnabled, setIsProximityAlerterEnabled] = useState(false);
   const [proximityAlertThreshold, setProximityAlertThreshold] = useState(10);
@@ -87,11 +99,15 @@ const App: React.FC = () => {
     try {
       const savedSettings = localStorage.getItem('calendarSettings');
       if (savedSettings) {
-        const { name, mode, color, bg, font, proximityAlertsEnabled, alertThreshold, moveThreshold } = JSON.parse(savedSettings);
+        const { name, mode, color, bg, font, proximityAlertsEnabled, alertThreshold, moveThreshold, backgroundSettings: savedBgSettings } = JSON.parse(savedSettings);
         if (name) setCalendarName(name);
         if (mode) setThemeMode(mode);
         if (color) setThemeColor(color);
-        if (bg) setBackgroundImage(bg);
+        if (savedBgSettings) {
+          setBackgroundSettings(savedBgSettings);
+        } else if (bg) { // Backwards compatibility with old 'bg' setting
+          setBackgroundSettings({ mode: 'single', singleImage: bg, monthlyImages: {} });
+        }
         if (font) setFontFamily(font);
         if (proximityAlertsEnabled) setIsProximityAlerterEnabled(proximityAlertsEnabled);
         if (alertThreshold) setProximityAlertThreshold(alertThreshold);
@@ -108,7 +124,7 @@ const App: React.FC = () => {
       name: calendarName,
       mode: themeMode,
       color: themeColor,
-      bg: backgroundImage,
+      backgroundSettings: backgroundSettings,
       font: fontFamily,
       proximityAlertsEnabled: isProximityAlerterEnabled,
       alertThreshold: proximityAlertThreshold,
@@ -125,20 +141,29 @@ const App: React.FC = () => {
     const selectedTheme = themes[themeColor];
     const selectedFont = fonts[fontFamily];
 
+    let activeBackgroundImage = null;
+    if (backgroundSettings.mode === 'single') {
+        activeBackgroundImage = backgroundSettings.singleImage;
+    } else { // 'monthly'
+        const currentMonth = currentDate.getMonth();
+        // Fallback to single image if no specific monthly image is set
+        activeBackgroundImage = backgroundSettings.monthlyImages[currentMonth] || backgroundSettings.singleImage;
+    }
+
     let css = ':root {\n';
     for (const [key, value] of Object.entries(selectedTheme)) {
       css += `  --primary-${key}: ${value};\n`;
     }
     css += `  --font-family: ${selectedFont};\n`;
-    css += `  --background-image-url: ${backgroundImage ? `url(${backgroundImage})` : 'none'};\n`;
+    css += `  --background-image-url: ${activeBackgroundImage ? `url(${activeBackgroundImage})` : 'none'};\n`;
     css += '}';
 
     styleElement.innerHTML = css;
     document.head.appendChild(styleElement);
-  }, [calendarName, themeMode, themeColor, backgroundImage, fontFamily, isProximityAlerterEnabled, proximityAlertThreshold, movementThreshold]);
+  }, [calendarName, themeMode, themeColor, backgroundSettings, fontFamily, isProximityAlerterEnabled, proximityAlertThreshold, movementThreshold, currentDate]);
 
 
-  // Load sample events on first render
+  // Load sample events and tasks on first render
   useEffect(() => {
     const today = new Date();
     const in15Minutes = new Date(today.getTime() + 15 * 60 * 1000); // For testing proximity alert
@@ -195,6 +220,21 @@ const App: React.FC = () => {
       },
     ];
     setEvents(sampleEvents);
+
+    const sampleTasks: Task[] = [
+      { id: 'task-1', title: 'Buy groceries for the week', isCompleted: false, priority: Priority.MEDIUM },
+      { id: 'task-2', title: 'Finish reading chapter 5', isCompleted: false, priority: Priority.LOW },
+      { id: 'task-3', title: 'Prepare slides for Friday presentation', isCompleted: false, priority: Priority.HIGH },
+      { id: 'task-4', title: 'Call the bank', isCompleted: true, priority: Priority.MEDIUM },
+    ];
+    setTasks(sampleTasks);
+
+    const sampleSharedUsers: SharedUser[] = [
+        { email: 'jane.doe@example.com', permission: 'edit' },
+        { email: 'john.smith@example.com', permission: 'view' },
+    ];
+    setSharedUsers(sampleSharedUsers);
+
   }, []);
 
   // Native Browser Notifications
@@ -246,16 +286,28 @@ const App: React.FC = () => {
   
   const saveEvent = (eventToSave: CalendarEvent) => {
     const isNew = !eventToSave.id;
+    const hasAttendees = eventToSave.attendees && eventToSave.attendees.length > 0;
 
     // Handle Recurring Events
     if (eventToSave.recurrenceRule && eventToSave.recurrenceRule.freq !== 'none') {
+        if (!eventToSave.recurrenceRule.until) {
+            showNotification("Please set an end date for the recurring event.", "error");
+            return;
+        }
+        
         const recurringEvents: CalendarEvent[] = [];
         const recurringEventId = eventToSave.recurringEventId || Date.now().toString();
         let currentInstanceDate = new Date(eventToSave.start);
         const endDate = new Date(eventToSave.recurrenceRule.until + 'T23:59:59');
         const duration = eventToSave.end.getTime() - eventToSave.start.getTime();
 
-        while (currentInstanceDate <= endDate) {
+        if (isNaN(endDate.getTime())) {
+            showNotification("The end date for the recurrence is invalid.", "error");
+            return;
+        }
+        
+        let safetyBreak = 0;
+        while (currentInstanceDate <= endDate && safetyBreak < 3650) {
             const newEventInstance: CalendarEvent = {
                 ...eventToSave,
                 id: `${recurringEventId}-${currentInstanceDate.getTime()}`,
@@ -270,6 +322,7 @@ const App: React.FC = () => {
                 case 'weekly': currentInstanceDate.setDate(currentInstanceDate.getDate() + 7); break;
                 case 'monthly': currentInstanceDate.setMonth(currentInstanceDate.getMonth() + 1); break;
             }
+            safetyBreak++;
         }
         
         setEvents(prev => [
@@ -278,6 +331,7 @@ const App: React.FC = () => {
         ]);
 
         showNotification(`Recurring event "${eventToSave.title}" has been saved.`, 'success');
+        if (hasAttendees) showNotification('Simulated invitations sent to attendees.', 'info');
 
     } else { // Handle Single Event
         if (isNew) {
@@ -288,6 +342,7 @@ const App: React.FC = () => {
             setEvents(prev => prev.map(e => e.id === eventToSave.id ? eventToSave : e));
             showNotification('Event updated successfully!', 'success');
         }
+        if (hasAttendees) showNotification('Simulated invitations sent to attendees.', 'info');
     }
 
     setIsEventModalOpen(false);
@@ -375,21 +430,32 @@ const App: React.FC = () => {
     setIsLoading(true);
     try {
       const extractedData = await extractEventsFromImage(fileData, mimeType);
-      const newEvents: Omit<CalendarEvent, 'id'>[] = extractedData.map((item: any) => ({
-        title: item.title,
-        start: new Date(`${item.start_date}T${item.start_time}`),
-        end: new Date(`${item.end_date}T${item.end_time}`),
-        description: item.description,
-        category: item.category,
-        priority: Priority.NONE,
-        location: item.location || '',
-        link: item.link || '',
-        contactEmail: item.contact_email || '',
-        contactPhone: item.contact_phone || '',
-        attendees: item.attendees || [],
-        autoNotified: false,
-        proximityAlertEnabled: false,
-      }));
+      const newEvents = extractedData.map((item: any) => {
+        const start = new Date(`${item.start_date}T${item.start_time}`);
+        const end = new Date(`${item.end_date}T${item.end_time}`);
+
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+            console.warn("Skipping event with invalid date from AI:", item);
+            return null;
+        }
+
+        return {
+          title: item.title,
+          start: start,
+          end: end,
+          description: item.description,
+          category: item.category,
+          priority: Priority.NONE,
+          location: item.location || '',
+          link: item.link || '',
+          contactEmail: item.contact_email || '',
+          contactPhone: item.contact_phone || '',
+          attendees: item.attendees || [],
+          autoNotified: false,
+          proximityAlertEnabled: false,
+        };
+      }).filter(Boolean) as Omit<CalendarEvent, 'id'>[];
+
       if (newEvents.length > 0) {
         setEventsToReview(newEvents);
         setIsReviewModalOpen(true);
@@ -437,16 +503,27 @@ const App: React.FC = () => {
     setIsLoading(true);
     try {
         const studyPlanData = await planStudyTime(events);
-        const newStudyEvents: Omit<CalendarEvent, 'id'>[] = studyPlanData.map((item: any) => ({
-            title: item.title,
-            start: new Date(`${item.start_date}T${item.start_time}`),
-            end: new Date(`${item.end_date}T${item.end_time}`),
-            description: item.description,
-            category: item.category,
-            priority: Priority.MEDIUM,
-            autoNotified: false,
-            proximityAlertEnabled: false,
-        }));
+        const newStudyEvents = studyPlanData.map((item: any) => {
+            const start = new Date(`${item.start_date}T${item.start_time}`);
+            const end = new Date(`${item.end_date}T${item.end_time}`);
+
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+                console.warn("Skipping study plan event with invalid date from AI:", item);
+                return null;
+            }
+
+            return {
+                title: item.title,
+                start,
+                end,
+                description: item.description,
+                category: item.category,
+                priority: Priority.MEDIUM,
+                autoNotified: false,
+                proximityAlertEnabled: false,
+            };
+        }).filter(Boolean) as Omit<CalendarEvent, 'id'>[];
+
         if(newStudyEvents.length > 0) {
             addEvents(newStudyEvents);
             showNotification('AI has added study sessions to your calendar!', 'success');
@@ -614,11 +691,19 @@ const App: React.FC = () => {
     showNotification("AI is parsing your command...", 'info');
     try {
         const parsedData = await parseNaturalLanguageEvent(command);
+        const start = new Date(parsedData.start_iso);
+        const end = new Date(parsedData.end_iso);
+
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+            showNotification("The AI returned an invalid date format. Please try rephrasing.", 'error');
+            return;
+        }
+
         setSelectedEvent({
             id: '', // New event
             title: parsedData.title,
-            start: new Date(parsedData.start_iso),
-            end: new Date(parsedData.end_iso),
+            start: start,
+            end: end,
             category: 'Personal',
             priority: Priority.NONE,
             autoNotified: false,
@@ -748,10 +833,76 @@ const App: React.FC = () => {
 
     showNotification(message, 'info', options);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  
+  // Task Handlers
+  const handleAddTask = (title: string, priority: Priority) => {
+    const newTask: Task = {
+      id: `task-${Date.now()}`,
+      title,
+      isCompleted: false,
+      priority,
+    };
+    setTasks(prev => [...prev, newTask]);
+  };
+
+  const handleToggleTask = (taskId: string) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, isCompleted: !t.isCompleted } : t));
+  };
+  
+  const handleDeleteTask = (taskId: string) => {
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+  };
+  
+  const handleScheduleTask = (taskId: string, targetDate: Date) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    const newEvent: CalendarEvent = {
+        id: `event-${Date.now()}`,
+        title: task.title,
+        start: targetDate,
+        end: new Date(targetDate.getTime() + 60 * 60 * 1000), // Default 1 hour duration
+        category: 'Task',
+        priority: task.priority,
+        autoNotified: false,
+        proximityAlertEnabled: false,
+        recurrenceRule: { freq: 'none' },
+    };
+    
+    setEvents(prev => [...prev, newEvent]);
+    setTasks(prev => prev.filter(t => t.id !== taskId)); // Remove from task list
+    showNotification(`Task "${task.title}" scheduled successfully!`, 'success');
+  };
+
+  // Sharing Handlers (Simulated)
+  const handleShareInvite = (email: string, permission: Permission) => {
+    if (sharedUsers.some(u => u.email === email)) {
+        showNotification('This user has already been invited.', 'error');
+        return;
+    }
+    setSharedUsers(prev => [...prev, { email, permission }]);
+    showNotification(`Invitation sent to ${email}.`, 'success');
+  };
+
+  const handleUpdatePermission = (email: string, permission: Permission) => {
+    setSharedUsers(prev => prev.map(u => u.email === email ? { ...u, permission } : u));
+    showNotification(`Permissions updated for ${email}.`, 'info');
+  };
+
+  const handleRemoveSharedUser = (email: string) => {
+    setSharedUsers(prev => prev.filter(u => u.email !== email));
+    showNotification(`${email} has been removed from the calendar.`, 'info');
+  };
+
 
   useProximityAlerter(events, handleSmartAlert, isProximityAlerterEnabled, proximityAlertThreshold, movementThreshold);
 
   const renderCalendarView = () => {
+    const activeBackgroundImage = backgroundSettings.mode === 'monthly'
+        ? backgroundSettings.monthlyImages[currentDate.getMonth()] || backgroundSettings.singleImage
+        : backgroundSettings.singleImage;
+    const hasBg = !!activeBackgroundImage;
+
       switch (view) {
           case 'day':
               return <DayView 
@@ -759,7 +910,8 @@ const App: React.FC = () => {
                 events={events} 
                 onEventClick={handleEventClick} 
                 onViewDirections={handleViewDirections}
-                hasBackgroundImage={!!backgroundImage}
+                hasBackgroundImage={hasBg}
+                onScheduleTask={handleScheduleTask}
               />;
           case 'year':
               return <YearView 
@@ -770,7 +922,7 @@ const App: React.FC = () => {
                     setView('month');
                 }}
                 onDayClick={handleDayClick}
-                hasBackgroundImage={!!backgroundImage}
+                hasBackgroundImage={hasBg}
               />;
           case 'month':
           default:
@@ -781,7 +933,8 @@ const App: React.FC = () => {
                 onEventClick={handleEventClick}
                 onDayClick={handleDayClick}
                 onEventUpdate={handleEventUpdate}
-                hasBackgroundImage={!!backgroundImage}
+                hasBackgroundImage={hasBg}
+                onScheduleTask={handleScheduleTask}
               />;
       }
   }
@@ -808,6 +961,10 @@ const App: React.FC = () => {
         )}
         <Sidebar 
             events={events}
+            tasks={tasks}
+            onAddTask={handleAddTask}
+            onToggleTask={handleToggleTask}
+            onDeleteTask={handleDeleteTask}
             onAddEvent={() => setIsFileUploadModalOpen(true)}
             onAddManually={handleManualAddClick}
             onPrioritize={handlePrioritize}
@@ -816,6 +973,7 @@ const App: React.FC = () => {
             onProactiveAssistant={handleProactiveAssistant}
             onVoiceCommand={handleVoiceCommand}
             onNlpParse={handleNlpParse}
+            onShare={() => setIsShareModalOpen(true)}
             onCustomize={() => setIsThemeModalOpen(true)}
             isLoadingAI={isLoading}
             isOpen={isSidebarOpen}
@@ -852,6 +1010,15 @@ const App: React.FC = () => {
         onClose={() => setIsReviewModalOpen(false)}
         events={eventsToReview}
         onConfirm={handleConfirmReviewedEvents}
+      />
+      
+      <ShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        sharedUsers={sharedUsers}
+        onInvite={handleShareInvite}
+        onUpdatePermission={handleUpdatePermission}
+        onRemoveUser={handleRemoveSharedUser}
       />
 
       <SendMessageModal
@@ -902,7 +1069,8 @@ const App: React.FC = () => {
         onColorChange={setThemeColor}
         currentFont={fontFamily}
         onFontChange={setFontFamily}
-        onBgChange={setBackgroundImage}
+        backgroundSettings={backgroundSettings}
+        onBackgroundSettingsChange={setBackgroundSettings}
         isProximityAlertsEnabled={isProximityAlerterEnabled}
         onProximityAlertsChange={setIsProximityAlerterEnabled}
         proximityAlertThreshold={proximityAlertThreshold}

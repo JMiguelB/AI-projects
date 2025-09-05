@@ -1,11 +1,12 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { XIcon } from './icons/XIcon';
 import { ImageIcon } from './icons/ImageIcon';
 import { ThemeColor, FontFamily, themes, fonts } from '../theme';
 import { ToggleSwitch } from './ToggleSwitch';
-import { ThemeMode } from '../types';
+import { ThemeMode, BackgroundSettings, BackgroundMode } from '../types';
 import { SunIcon } from './icons/SunIcon';
 import { MoonIcon } from './icons/MoonIcon';
+import { MONTHS } from '../constants';
 
 interface ThemeCustomizerProps {
   isOpen: boolean;
@@ -18,7 +19,8 @@ interface ThemeCustomizerProps {
   onColorChange: (color: ThemeColor) => void;
   currentFont: FontFamily;
   onFontChange: (font: FontFamily) => void;
-  onBgChange: (bg: string | null) => void;
+  backgroundSettings: BackgroundSettings;
+  onBackgroundSettingsChange: (settings: BackgroundSettings) => void;
   isProximityAlertsEnabled: boolean;
   onProximityAlertsChange: (enabled: boolean) => void;
   proximityAlertThreshold: number;
@@ -38,7 +40,8 @@ export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({
   onColorChange,
   currentFont,
   onFontChange,
-  onBgChange,
+  backgroundSettings,
+  onBackgroundSettingsChange,
   isProximityAlertsEnabled,
   onProximityAlertsChange,
   proximityAlertThreshold,
@@ -47,25 +50,70 @@ export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({
   onMovementThresholdChange,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeMonthUpload, setActiveMonthUpload] = useState<number | null>(null);
 
   if (!isOpen) return null;
 
   const handleBgUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        onBgChange(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const newImage = reader.result as string;
+      if (activeMonthUpload !== null) {
+        // Monthly upload
+        const newMonthlyImages = {
+          ...backgroundSettings.monthlyImages,
+          [activeMonthUpload]: newImage,
+        };
+        onBackgroundSettingsChange({
+          ...backgroundSettings,
+          monthlyImages: newMonthlyImages,
+        });
+        setActiveMonthUpload(null); // Reset after upload
+      } else {
+        // Single upload
+        onBackgroundSettingsChange({
+          ...backgroundSettings,
+          singleImage: newImage,
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+    if(event.target) event.target.value = ''; // Reset file input to allow re-uploading the same file
+  };
+
+  const triggerSingleUpload = () => {
+    setActiveMonthUpload(null);
+    fileInputRef.current?.click();
+  };
+
+  const triggerMonthUpload = (monthIndex: number) => {
+    setActiveMonthUpload(monthIndex);
+    fileInputRef.current?.click();
+  };
+  
+  const removeSingleBg = () => {
+    onBackgroundSettingsChange({ ...backgroundSettings, singleImage: null });
+  };
+  
+  const removeMonthBg = (monthIndex: number) => {
+    const newMonthlyImages = { ...backgroundSettings.monthlyImages };
+    delete newMonthlyImages[monthIndex];
+    onBackgroundSettingsChange({ ...backgroundSettings, monthlyImages: newMonthlyImages });
+  };
+
+  const handleModeChange = (mode: BackgroundMode) => {
+    onBackgroundSettingsChange({ ...backgroundSettings, mode });
   };
   
   const inputClasses = "w-full p-2 border border-slate-300 rounded-md bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary-500)] dark:bg-slate-700 dark:border-slate-600 dark:text-white dark:focus:ring-offset-slate-800";
+  const modeButtonClasses = (mode: BackgroundMode) => `flex-1 py-1.5 text-xs font-semibold transition-colors ${backgroundSettings.mode === mode ? 'bg-slate-200 dark:bg-slate-600' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-sm p-6 animate-fade-in-up">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-sm p-6 animate-fade-in-up flex flex-col" style={{ maxHeight: '90vh' }}>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Customize</h2>
           <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700">
@@ -73,7 +121,7 @@ export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({
           </button>
         </div>
         
-        <div className="space-y-6">
+        <div className="space-y-6 overflow-y-auto pr-2 flex-1">
           {/* Calendar Name */}
           <div>
             <label htmlFor="calendar-name" className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Calendar Name</label>
@@ -139,28 +187,54 @@ export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({
           {/* Background Image Uploader */}
           <div>
             <label className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2 block">Background Image</label>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-white text-slate-700 font-semibold border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 transition-all dark:bg-slate-700 dark:text-slate-200 dark:border-slate-600 dark:hover:bg-slate-600"
-              >
-                <ImageIcon className="w-5 h-5" />
-                Upload
-              </button>
-              <input
-                type="file"
-                ref={fileInputRef}
-                className="hidden"
-                accept="image/png, image/jpeg, image/gif, image/webp"
-                onChange={handleBgUpload}
-              />
-              <button
-                onClick={() => onBgChange(null)}
-                className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300 font-semibold text-sm dark:bg-slate-600 dark:text-slate-100 dark:hover:bg-slate-500"
-              >
-                Remove
-              </button>
+            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleBgUpload} />
+            <div className="flex rounded-md border border-slate-300 dark:border-slate-600 p-1 mb-3">
+              <button onClick={() => handleModeChange('single')} className={`${modeButtonClasses('single')} rounded-l-md`}>Single</button>
+              <button onClick={() => handleModeChange('monthly')} className={`${modeButtonClasses('monthly')} rounded-r-md border-l border-slate-300 dark:border-slate-600`}>Monthly</button>
             </div>
+
+            {backgroundSettings.mode === 'single' ? (
+              <div className="flex items-center gap-3">
+                <button onClick={triggerSingleUpload} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-white text-slate-700 font-semibold border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 transition-all dark:bg-slate-700 dark:text-slate-200 dark:border-slate-600 dark:hover:bg-slate-600">
+                  <ImageIcon className="w-5 h-5" /> Upload
+                </button>
+                <button onClick={removeSingleBg} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300 font-semibold text-sm dark:bg-slate-600 dark:text-slate-100 dark:hover:bg-slate-500">
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div>
+                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Upload an image for each month. A fallback can also be set.</p>
+                 <div className="flex items-center gap-3 mb-4">
+                     <button onClick={triggerSingleUpload} className="flex-1 px-3 py-1.5 bg-white text-slate-700 font-semibold border border-slate-300 rounded-md shadow-sm hover:bg-slate-50 transition-all dark:bg-slate-700 dark:text-slate-200 dark:border-slate-600 dark:hover:bg-slate-600 text-xs">
+                        {backgroundSettings.singleImage ? 'Change Fallback' : 'Upload Fallback'}
+                     </button>
+                     {backgroundSettings.singleImage && (
+                        <button onClick={removeSingleBg} className="px-3 py-1.5 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300 font-semibold text-xs dark:bg-slate-600 dark:text-slate-100 dark:hover:bg-slate-500">
+                           Remove
+                        </button>
+                     )}
+                 </div>
+                 <div className="grid grid-cols-3 gap-2">
+                    {MONTHS.map((month, index) => (
+                      <div key={index} className="relative">
+                        <button
+                          onClick={() => triggerMonthUpload(index)}
+                          className="w-full aspect-square rounded-md border-2 border-dashed border-slate-300 dark:border-slate-600 flex items-center justify-center text-slate-500 dark:text-slate-400 font-bold text-lg hover:bg-slate-50 dark:hover:bg-slate-700 bg-cover bg-center"
+                          style={{ backgroundImage: backgroundSettings.monthlyImages[index] ? `url(${backgroundSettings.monthlyImages[index]})` : 'none' }}
+                        >
+                          {!backgroundSettings.monthlyImages[index] && month.substring(0, 3)}
+                        </button>
+                        {backgroundSettings.monthlyImages[index] && (
+                          <button onClick={() => removeMonthBg(index)} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-0.5 hover:bg-black/80">
+                            <XIcon className="w-3 h-3"/>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                 </div>
+              </div>
+            )}
           </div>
           
            {/* Smart Alerter Toggle */}

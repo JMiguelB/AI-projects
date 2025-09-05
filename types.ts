@@ -31,4 +31,28 @@ export interface CalendarEvent {
   recurringEventId?: string;
 }
 
+export type BackgroundMode = 'single' | 'monthly';
+
+export interface BackgroundSettings {
+  mode: BackgroundMode;
+  singleImage: string | null;
+  monthlyImages: {
+    [month: number]: string; // month is 0-11
+  };
+}
+
 export type ThemeMode = 'light' | 'dark';
+
+export interface Task {
+  id: string;
+  title: string;
+  isCompleted: boolean;
+  priority: Priority;
+}
+
+export type Permission = 'view' | 'edit';
+
+export interface SharedUser {
+  email: string;
+  permission: Permission;
+}

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { WEEKDAYS } from '../constants';
 import { CalendarEvent, Priority } from '../types';
@@ -9,6 +10,7 @@ interface CalendarViewProps {
   onDayClick: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
   onEventUpdate: (event: CalendarEvent) => void;
+  onScheduleTask: (taskId: string, targetDate: Date) => void;
   hasBackgroundImage: boolean;
 }
 
@@ -28,30 +30,38 @@ const getPriorityColor = (priority: Priority) => {
     }
 }
 
-export const CalendarView: React.FC<CalendarViewProps> = ({ days, currentMonth, events, onDayClick, onEventClick, onEventUpdate, hasBackgroundImage }) => {
+export const CalendarView: React.FC<CalendarViewProps> = ({ days, currentMonth, events, onDayClick, onEventClick, onEventUpdate, onScheduleTask, hasBackgroundImage }) => {
   const dayCellBg = hasBackgroundImage ? 'bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm' : 'bg-white dark:bg-slate-800';
   const otherMonthDayCellBg = hasBackgroundImage ? 'bg-slate-50/80 dark:bg-slate-800/60 backdrop-blur-sm' : 'bg-slate-50 dark:bg-slate-800/50';
   const [dragOverDay, setDragOverDay] = React.useState<Date | null>(null);
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, event: CalendarEvent) => {
-    e.dataTransfer.setData('text/plain', event.id);
+    e.dataTransfer.setData('text/plain', `event-${event.id}`);
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>, day: Date) => {
     e.preventDefault();
     setDragOverDay(null);
-    const eventId = e.dataTransfer.getData('text/plain');
-    const event = events.find(ev => ev.id === eventId);
-    if (!event) return;
-
-    // Calculate new start and end dates, preserving the time
-    const newStart = new Date(day);
-    newStart.setHours(event.start.getHours(), event.start.getMinutes(), event.start.getSeconds(), event.start.getMilliseconds());
-
-    const duration = event.end.getTime() - event.start.getTime();
-    const newEnd = new Date(newStart.getTime() + duration);
+    const data = e.dataTransfer.getData('text/plain');
     
-    onEventUpdate({ ...event, start: newStart, end: newEnd });
+    if (data.startsWith('event-')) {
+      const eventId = data.substring(6);
+      const event = events.find(ev => ev.id === eventId);
+      if (!event) return;
+
+      const newStart = new Date(day);
+      newStart.setHours(event.start.getHours(), event.start.getMinutes(), event.start.getSeconds(), event.start.getMilliseconds());
+
+      const duration = event.end.getTime() - event.start.getTime();
+      const newEnd = new Date(newStart.getTime() + duration);
+      
+      onEventUpdate({ ...event, start: newStart, end: newEnd });
+    } else if (data.startsWith('task-')) {
+      const taskId = data.substring(5);
+      const targetDate = new Date(day);
+      targetDate.setHours(9, 0, 0, 0); // Default to 9 AM
+      onScheduleTask(taskId, targetDate);
+    }
   };
 
   return (
@@ -67,7 +77,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ days, currentMonth, 
         const isCurrentMonth = day.getMonth() === currentMonth;
         const today = isToday(day);
         const dailyEvents = events
-            .filter(e => isSameDay(e.start, day))
+            .filter(e => {
+                const dayStart = new Date(day);
+                dayStart.setHours(0, 0, 0, 0);
+                const dayEnd = new Date(day);
+                dayEnd.setHours(23, 59, 59, 999);
+                return e.start <= dayEnd && e.end > dayStart;
+            })
             .sort((a,b) => a.start.getTime() - b.start.getTime());
         const isDragOver = dragOverDay && isSameDay(dragOverDay, day);
 

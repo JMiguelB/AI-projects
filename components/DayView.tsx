@@ -1,4 +1,5 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 import { CalendarEvent, Priority } from '../types';
 import { MapPinIcon } from './icons/MapPinIcon';
 
@@ -7,13 +8,9 @@ interface DayViewProps {
   events: CalendarEvent[];
   onEventClick: (event: CalendarEvent) => void;
   onViewDirections: (location: string) => void;
+  onScheduleTask: (taskId: string, targetDate: Date) => void;
   hasBackgroundImage: boolean;
 }
-
-const isSameDay = (d1: Date, d2: Date) => 
-  d1.getFullYear() === d2.getFullYear() &&
-  d1.getMonth() === d2.getMonth() &&
-  d1.getDate() === d2.getDate();
   
 const getPriorityColor = (priority: Priority) => {
     switch (priority) {
@@ -24,23 +21,61 @@ const getPriorityColor = (priority: Priority) => {
     }
 }
 
-export const DayView: React.FC<DayViewProps> = ({ date, events, onEventClick, onViewDirections, hasBackgroundImage }) => {
+export const DayView: React.FC<DayViewProps> = ({ date, events, onEventClick, onViewDirections, onScheduleTask, hasBackgroundImage }) => {
   const hours = Array.from({ length: 24 }, (_, i) => i);
-  const dailyEvents = events.filter(e => isSameDay(e.start, date));
   const bgClass = hasBackgroundImage ? 'bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm' : 'bg-white dark:bg-slate-800';
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+
+  const dayStart = new Date(date);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(date);
+  dayEnd.setHours(23, 59, 59, 999);
+
+  const dailyEvents = events.filter(e => e.start <= dayEnd && e.end > dayStart);
 
   const calculateEventStyle = (event: CalendarEvent) => {
-    const startMinutes = event.start.getHours() * 60 + event.start.getMinutes();
-    const endMinutes = event.end.getHours() * 60 + event.end.getMinutes();
-    const duration = Math.max(15, endMinutes - startMinutes); // Min duration of 15 mins for visibility
+    const dayStartMs = new Date(date).setHours(0, 0, 0, 0);
 
+    const eventStartMs = Math.max(dayStartMs, event.start.getTime());
+    const eventEndMs = Math.min(new Date(date).setHours(23, 59, 59, 999), event.end.getTime());
+
+    const startMinutes = (eventStartMs - dayStartMs) / (1000 * 60);
+    const durationMinutes = (eventEndMs - eventStartMs) / (1000 * 60);
+    
     const top = (startMinutes / 60) * 4; // 4rem per hour
-    const height = (duration / 60) * 4; // 4rem per hour
+    const height = (Math.max(15, durationMinutes) / 60) * 4;
 
     return {
       top: `${top}rem`,
       height: `${height}rem`,
     };
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingOver(true);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+    const data = e.dataTransfer.getData('text/plain');
+
+    if (data.startsWith('task-')) {
+      const taskId = data.substring(5);
+      const grid = e.currentTarget as HTMLDivElement;
+      const rect = grid.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const totalMinutes = (y / rect.height) * 24 * 60;
+      
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = Math.floor(totalMinutes % 60);
+      
+      const targetDate = new Date(date);
+      targetDate.setHours(hours, minutes, 0, 0);
+
+      onScheduleTask(taskId, targetDate);
+    }
   };
 
   return (
@@ -59,7 +94,10 @@ export const DayView: React.FC<DayViewProps> = ({ date, events, onEventClick, on
 
       {/* Events Grid */}
       <div 
-        className="flex-1 relative border-l border-slate-200 dark:border-slate-700"
+        className={`flex-1 relative border-l border-slate-200 dark:border-slate-700 ${isDraggingOver ? 'bg-sky-50/50 dark:bg-sky-900/20' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={() => setIsDraggingOver(false)}
+        onDrop={handleDrop}
       >
         {hours.map(hour => (
           <div key={hour} className="h-16 border-t border-slate-200 dark:border-slate-700"></div>

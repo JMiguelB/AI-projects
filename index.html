@@ -38,6 +38,24 @@
         --font-family: 'Inter', sans-serif;
         --background-image-url: none;
       }
+      /* Add overlay for background image for better readability */
+      main[style*="background-image: url"] {
+        position: relative;
+      }
+      main[style*="background-image: url"]::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        background-color: rgba(0, 0, 0, 0.4);
+        z-index: 0;
+      }
+      main[style*="background-image: url"] > * {
+        position: relative;
+        z-index: 1;
+      }
     </style>
   <script type="importmap">
 {
