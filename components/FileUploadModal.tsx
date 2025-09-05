@@ -109,7 +109,7 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({ isOpen, onClos
             {view === 'select' && (
               <div>
                 <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-4">Add Events with AI</h2>
-                <p className="text-slate-600 dark:text-slate-300 mb-6">Upload a schedule, screenshot, or photo of handwritten notes.</p>
+                <p className="text-slate-600 dark:text-slate-300 mb-6">Upload a document (like a PDF syllabus or flyer), a schedule, a screenshot, or a photo of handwritten notes.</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label htmlFor="file-upload" className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors dark:border-slate-600 dark:hover:bg-slate-700">
                     <UploadIcon className="w-12 h-12 text-[var(--primary-500)] mb-2" />

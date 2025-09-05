@@ -8,6 +8,7 @@ import { DayView } from './components/DayView';
 import { YearView } from './components/YearView';
 import { EventModal } from './components/EventModal';
 import { FileUploadModal } from './components/FileUploadModal';
+import { EventReviewModal } from './components/EventReviewModal';
 import { SendMessageModal } from './components/SendMessageModal';
 import { SendSmsModal } from './components/SendSmsModal';
 import { ConflictModal } from './components/ConflictModal';
@@ -43,6 +44,8 @@ const App: React.FC = () => {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isFileUploadModalOpen, setIsFileUploadModalOpen] = useState(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [eventsToReview, setEventsToReview] = useState<Omit<CalendarEvent, 'id'>[]>([]);
   const [isSendMessageModalOpen, setIsSendMessageModalOpen] = useState(false);
   const [isSendSmsModalOpen, setIsSendSmsModalOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
@@ -291,8 +294,8 @@ const App: React.FC = () => {
         proximityAlertEnabled: false,
       }));
       if (newEvents.length > 0) {
-        addEvents(newEvents);
-        showNotification(`Successfully added ${newEvents.length} new event(s)!`, 'success');
+        setEventsToReview(newEvents);
+        setIsReviewModalOpen(true);
       } else {
         showNotification('No events were found in the document.', 'info');
       }
@@ -305,6 +308,17 @@ const App: React.FC = () => {
     }
   }, []);
   
+  const handleConfirmReviewedEvents = (confirmedEvents: Omit<CalendarEvent, 'id'>[]) => {
+    if (confirmedEvents.length > 0) {
+      addEvents(confirmedEvents);
+      showNotification(`Successfully added ${confirmedEvents.length} new event(s)!`, 'success');
+    } else {
+      showNotification('No events were selected to be added.', 'info');
+    }
+    setIsReviewModalOpen(false);
+    setEventsToReview([]);
+  };
+
   const handlePrioritize = async () => {
       setIsLoading(true);
       try {
@@ -620,6 +634,13 @@ const App: React.FC = () => {
         onClose={() => setIsFileUploadModalOpen(false)}
         onFileUpload={handleFileUpload}
         isLoading={isLoading}
+      />
+
+      <EventReviewModal
+        isOpen={isReviewModalOpen}
+        onClose={() => setIsReviewModalOpen(false)}
+        events={eventsToReview}
+        onConfirm={handleConfirmReviewedEvents}
       />
 
       <SendMessageModal

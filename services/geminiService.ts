@@ -55,7 +55,7 @@ export const extractEventsFromImage = async (base64Image: string, mimeType: stri
     if (process.env.API_KEY === "NO_API_KEY") return [];
     try {
         const currentDate = new Date().toISOString().split('T')[0];
-        const prompt = `You are an expert calendar assistant. Extract all events, tasks, and deadlines from this image. For each item, provide the details requested in the JSON schema, including locations, web links, contact emails, and phone numbers. Dates should be in YYYY-MM-DD format and times in HH:MM (24-hour) format. Today's date is ${currentDate}. If a day of the week is mentioned (e.g., 'next Tuesday'), calculate the correct date based on today. Infer end times if not specified (e.g., a meeting might be 1 hour). For deadlines, start and end time can be the same. Respond ONLY with a valid JSON object matching the provided schema.`;
+        const prompt = `You are an expert calendar assistant. Extract all events, tasks, and deadlines from this document or image. For each item, provide the details requested in the JSON schema, including locations, web links, contact emails, and phone numbers. Dates should be in YYYY-MM-DD format and times in HH:MM (24-hour) format. Today's date is ${currentDate}. If a day of the week is mentioned (e.g., 'next Tuesday'), calculate the correct date based on today. Infer end times if not specified (e.g., a meeting might be 1 hour). For deadlines, start and end time can be the same. Respond ONLY with a valid JSON object matching the provided schema.`;
 
         const imagePart = { inlineData: { data: base64Image, mimeType } };
         const textPart = { text: prompt };
